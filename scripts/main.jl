@@ -8,8 +8,12 @@ struct Soil{T} <: Node
     z::T
 end
 struct Drainage <: Node end
-soil_graph = Air() + Soil(-1.0) + Soil(-2.0) + Soil(-3.0) + Drainage()
-plantstructure = PlantStructure(soil_graph)
+
+const dz = 1.0
+soil_graph = sum([Soil(-i*dz) for i in 1:3])
+full_graph = Air() + soil_graph + Drainage()
+plantstructure = PlantStructure(full_graph)
+plotstructure(plantstructure)
 
 # # Function
 
@@ -54,24 +58,20 @@ end
 @register_symbolic vanGenuchten_C(h, θ_s, θ_r, α, n)
 
 # quick tests
+finesoil = (θₛ = 0.43, θᵣ = 0.078, α = 0.0083, n = 1.2539, Kₛ = 2.272 / (24), l = 0.5)
+plot(h -> vanGenuchten_θ(h, values(finesoil)[1:4]...), xlims = (-1000.0, 0.0))
+plot(h -> vanGenuchten_K(h, values(finesoil)...), xlims = (-1000.0, 0.0))
+plot(h -> vanGenuchten_C(h, values(finesoil)[1:4]...), xlims = (-1000.0, 0.0))
 
-θ_s = 0.43
-θ_r = 0.078
-α = 0.0083
-n = 1.2539
-K_s = 2.272 / (24)
-l = 0.5
-
-plot(h -> vanGenuchten_θ(h, θ_s, θ_r, α, n), xlims = (-3000.0, 0.0))
-plot(h -> vanGenuchten_K(h, θ_s, θ_r, α, n, K_s, l), xlims = (-3000.0, 0.0))
-plot(h -> vanGenuchten_C(h, θ_s, θ_r, α, n), xlims = (-3000.0, 0.0))
-
-# ### Actual modules
-
+# ### Modules
 @independent_variables t
 D = Differential(t)
 
-function soil_module(; name, α, n, Kₛ, l, θₛ, θᵣ, dz)
+function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
+    ρ_w = 1.0 # g / cm^3
+    g = 9.8 * 1.0e-5 # hN / g
+    Pₕ = ρ_w * g * z # MPa
+
     params = @parameters(
         α = α, [description = ""],
         n = n, [description = ""],
@@ -79,47 +79,48 @@ function soil_module(; name, α, n, Kₛ, l, θₛ, θᵣ, dz)
         l = l, [description = ""],
         θₛ = θₛ, [description = ""],
         θᵣ = θᵣ, [description = ""],
-        dz = dz, [description = ""],
+        dz = dz, [description = "Layer width"],
+        Pₕ = Pₕ, [description = "Gravitational water potential"],
     )
     vars = @variables (
         Ψ(t), [description = "Total water potential [?]"], # alias `hT`
-        Ψ_m(t), [description = "Matrix water potential [?]"], # alias `h`
+        Ψ_m(t) = Ψ_m, [description = "Matrix water potential [?]"], # alias `h`
         C(t), [description = "Soil water capacitance [?]"],
         K(t), [description = "Hydraulic conductivity [?]"],
         θ(t), [description = "Volumetric water content [?]"],
-        s(t), [description = "Root water uptake sink term (?) [?]"],
-        F(t), [description = "Water flux"], # alias `q`
-        dF(t), [description = "Change in water flux"], # alias `dq`
+        # s(t), [description = "Root water uptake sink term (?) [?]"],
+        F(t), [description = "Water flux [?]"], # alias `q`
+        ΣF(t), [description = "Net water influx [?]"], # alias `dq`
     )
     eqs = [
         C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
         K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
         θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
 
-        # time derivative: C * dh/dt = -dq - s  (signs depend on conventions)
-        D(Ψ[i]) ~ ( dF/ dz - s/dz ) / C,
-        [hT[i] ~ z[i] + h[i] for i in 1:nz]...,        # eq. 7 in paper
+        D(Ψ_m) ~ ( ΣF/dz #= - s/dz =# ) / C,
+        Ψ ~ Ψ_m + Pₕ # eq. 7 in paper
     ]
 
     system = ODESystem(eqs, t; name)
     return system
 end
 
-function soil_connection(; name)
-    @variables (
-        F(t), [description = "Water flux from compartment 2 to compartment 1"], #, unit = u"g / hr"],
-        dF(t), [description = "Change in water flux from compartment 2 to compartment 1"], #, unit = u"g / hr"],
-        K_half(t), [description = "Hydraulic conductivity of connection"], #, unit = u"g / hr / MPa"],
-        K_1(t), [description = "Hydraulic conductivity of compartment 1"], #, unit = u"g / hr / MPa"],
-        K_2(t), [description = "Hydraulic conductivity of compartment 2"], #, unit = u"g / hr / MPa"],
-        Ψ_1(t), [description = "Total water potential of compartment 1"], #, unit = u"MPa"],
-        Ψ_2(t), [description = "Total water potential of compartment 2"], #, unit = u"MPa"],
+# ### Module connections
+function soil_connection(; name, dz)
+    params = @parameters(
+        dz = dz, [description = "Layer width"],
     )
-
+    @variables (
+        F(t), [description = "Water flux from compartment 2 to compartment 1"],
+        K_half(t), [description = "Hydraulic conductivity of connection"],
+        K_1(t), [description = "Hydraulic conductivity of compartment 1"],
+        K_2(t), [description = "Hydraulic conductivity of compartment 2"],
+        Ψ_1(t), [description = "Total water potential of compartment 1"],
+        Ψ_2(t), [description = "Total water potential of compartment 2"],
+    )
     eqs = [
         F ~ K_half * ( (Ψ_2-Ψ_1) / dz -  dz/dz ),
         K_half ~ 2 / (1/K_1 + 1/K_2),
-        D(F) ~ dF
     ]
 
     get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK) = [
@@ -127,10 +128,49 @@ function soil_connection(; name)
         connection_MTK.Ψ_2 ~ nb_node_MTK.Ψ,
         connection_MTK.K_1 ~ node_MTK.K,
         connection_MTK.K_2 ~ nb_node_MTK.K,
-        connection_MTK.dF ~ node_MTK.dF, #! double check sign
-        connection_MTK.dF ~ -nb_node_MTK.dF, #! double check sign
     ]
     return System(eqs, t; name), get_connection_eqset
 end
 
+# ## Coupling
+
+module_coupling = Dict(
+    :Soil => [soil_module],
+    :Air => [environmental_module, Ψ_air_module],
+    :Drainage => [environmental_module, Ψ_soil_module]
+);
+connecting_modules = Dict(
+    (:Air, :Soil) => constant_hydraulic_connection,
+    (:Soil, :Soil) => soil_connection,
+    (:Soil, :Drainage) => constant_hydraulic_connection
+)
+
+plantcoupling = PlantCoupling(; module_coupling, connecting_modules);
+
 # ## Parameters
+
+default_changes = Dict(
+    Pair.(keys(finesoil), values(finesoil))..., 
+    :dz => dz,
+    :W_max => 1e5,
+    :z => NaN, # must be assigned in nodes!
+    :Ψ_m => -1.0
+)
+module_defaults = Dict(
+    :Air => Dict(:W_r => 0.9),
+    :Drainage => Dict(:W_r => 0.01)
+)
+connection_values = Dict(
+    (:Air, :Soil) => Dict(:K => 1e-5),
+    (:Soil, :Drainage) => Dict(:K => 1e-3)
+)
+plantparams = PlantParameters(; default_changes, module_defaults, connection_values);
+
+system = generate_system(plantstructure, plantcoupling, plantparams)
+time_span = (0.0, 48.0);
+prob = ODEProblem(system, [], time_span, sparse = true);
+sol = solve(prob, FBDF());
+plotgraph(sol, plantstructure, varname = :θ, structmod = :Soil)
+plotgraph(sol, plantstructure, varname = :Ψ, structmod = [:Soil, :Drainage])
+plotgraph(sol, plantstructure, varname = :ΣF, structmod = [:Air, :Drainage])
+plotgraph(sol, plantstructure, varname = :W, structmod = :Drainage)

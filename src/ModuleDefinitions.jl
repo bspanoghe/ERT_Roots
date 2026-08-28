@@ -1,59 +1,74 @@
-function soil_module(; name, α, n, Kₛ, l, θₛ, θᵣ, dz)
+@independent_variables t
+D = Differential(t)
+
+# # Modules
+# ## Translated
+function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
+    ρ_w = 1.0 # g / cm^3
+    g = 9.8 * 1.0e-5 # hN / g
+    Pₕ = ρ_w * g * z # MPa
+
     params = @parameters(
-        α = α, n = n, Kₛ = Kₛ, l = l, θₛ = θₛ, θᵣ = θᵣ,
-        dz = dz,
+        α = α, [description = ""],
+        n = n, [description = ""],
+        Kₛ = Kₛ, [description = ""],
+        l = l, [description = ""],
+        θₛ = θₛ, [description = ""],
+        θᵣ = θᵣ, [description = ""],
+        dz = dz, [description = "Layer width"],
+        Pₕ = Pₕ, [description = "Gravitational water potential"],
     )
     vars = @variables (
-        h(t)[1:nz], C(t)[1:nz], K(t)[1:nz], θ(t)[1:nz],
-        h_top(t), K_top(t),
-        prec_evap(t), 
-        s(t)[1:nz],
-        dh(t)[1:nz],
-        K_half(t)[1:(nz)],
-        q(t)[1:(nz+1)],
-        dq(t)[1:nz], hT(t)[1:nz]
+        Ψ(t), [description = "Total water potential [?]"], # alias `hT`
+        Ψ_m(t) = Ψ_m, [description = "Matrix water potential [?]"], # alias `h`
+        C(t), [description = "Soil water capacitance [?]"],
+        K(t), [description = "Hydraulic conductivity [?]"],
+        θ(t), [description = "Volumetric water content [?]"],
+        # s(t), [description = "Root water uptake sink term (?) [?]"],
+        F(t), [description = "Water flux [?]"], # alias `q`
+        ΣF(t), [description = "Net water influx [?]"], # alias `dq`
     )
     eqs = [
-        [C[i] ~ vanGenuchten_C(h[i], θₛ, θᵣ, α, n) for i in 1:nz]...,
-        [K[i] ~ vanGenuchten_K(h[i], θₛ, θᵣ, α, n, Kₛ, l) for i in 1:nz]...,
-        [θ[i] ~ vanGenuchten_θ(h[i], θₛ, θᵣ, α, n) for i in 1:nz]...,
+        C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
+        K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
+        θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
 
-        h_top ~ hmin,  # example value for htop
-        K_top ~ vanGenuchten_K(h_top, θₛ, θᵣ, α, n, Kₛ, l), # K in
-
-        # Richards equation in 1D
-        K_half[1] ~ K_top,
-        [K_half[i+1] ~ 2 / (1/K[i] + 1/K[i+1]) for i in 1:(nz-1)]...,
-    
-        [q[i+1] ~ K_half[i+1] * ( (h[i+1]-h[i]) / dz -  dz/dz ) for i in 1:(nz-1)]...,
-    
-        # topflux
-        q[1] ~ bc_top(h_top, K_top, Kₛ, prec_evap, K[1], h[1], dz),
-        # bottomflux free drainage
-        q[nz+1] ~ - K[nz], 
-
-        [dq[i] ~ (q[i+1] - q[i])  for i in 1:nz]...,
-
-        # time derivative: C * dh/dt = -dq - s  (signs depend on conventions)
-        [dh[i] ~ ( dq[i]/ dz - s[i]/dz ) / C[i] for i in 1:nz]..., 
-  
-        [D(h[i]) ~ dh[i] for i in 1:nz]...,
-        [hT[i] ~ z[i] + h[i] for i in 1:nz]...,        # eq. 7 in paper
+        D(Ψ_m) ~ ( ΣF/dz #= - s/dz =# ) / C,
+        Ψ ~ Ψ_m + Pₕ # eq. 7 in paper
     ]
 
     system = ODESystem(eqs, t; name)
     return system
 end
 
+# ## TODO
+
 function rootuptake_module(; name,  εₓ, rᵣ, kᵣ, kₓ, Ψ_ref, k_Ψ, kc)
     params = @parameters (εₓ = εₓ, rᵣ = rᵣ, kᵣ = kᵣ, kₓ = kₓ, Ψ_ref = Ψ_ref, k_Ψ = k_Ψ, kc = kc)
     vars = @variables (        
-        F(t)[1:nz], Tp(t), Kₓ(t)[1:nz], dz(t), lᵣ(t)[1:nz],
-        Hₓ(t)[1:nz], dHₓ(t)[1:nz], dWₓ(t)[1:nz], Wₓ(t)[1:nz],
-        hₛ(t)[1:nz], dhₛ(t), Hₛ(t)[1:nz], s(t)[1:nz], r_rhiz(t)[1:nz],
-        rld(t)[1:nz], ρ(t)[1:nz], B(t)[1:nz], Hᵣₛ(t)[1:nz],
-        Kᵣ(t)[1:nz], uptake(t)[1:nz], H₀(t),
-        LAI(t), f_Ψ(t)
+        F(t)[1:nz], [description = ""],
+        Tp(t), [description = ""],
+        Kₓ(t)[1:nz], [description = ""],
+        dz(t), [description = ""],
+        lᵣ(t)[1:nz], [description = ""],
+        Hₓ(t)[1:nz], [description = ""],
+        dHₓ(t)[1:nz], [description = ""],
+        dWₓ(t)[1:nz], [description = ""],
+        Wₓ(t)[1:nz], [description = ""],
+        hₛ(t)[1:nz], [description = ""],
+        dhₛ(t), [description = ""],
+        Hₛ(t)[1:nz], [description = ""],
+        s(t)[1:nz], 
+        r_rhiz(t)[1:nz], [description = ""],
+        rld(t)[1:nz], 
+        ρ(t)[1:nz], [description = ""],
+        B(t)[1:nz], [description = ""],
+        Hᵣₛ(t)[1:nz], [description = ""],
+        Kᵣ(t)[1:nz], 
+        uptake(t)[1:nz], 
+        H₀(t), [description = ""],
+        LAI(t), [description = ""],
+        f_Ψ(t), [description = ""],
     )
     eqs = [
         # root-soil dimension aspects
@@ -104,29 +119,29 @@ end
 
 function phenology_module(; name, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ, Ψ_ref, r_LAI, r_max)
     params = @parameters(
-        Tmin = Tmin,
-        Tmax = Tmax,
-        Topt = Topt, 
-        v_max = v_max,
-        S_ref = S_ref,
-        k_s = k_s,
-        k_Ψ = k_Ψ,
-        Ψ_ref = Ψ_ref,
-        r_LAI = r_LAI,
-        r_max = r_max,
+        Tmin = Tmin, [description = ""],
+        Tmax = Tmax, [description = ""],
+        Topt = Topt, [description = ""],
+        v_max = v_max, [description = ""],
+        S_ref = S_ref, [description = ""],
+        k_s = k_s, [description = ""],
+        k_Ψ = k_Ψ, [description = ""],
+        Ψ_ref = Ψ_ref, [description = ""],
+        r_LAI = r_LAI, [description = ""],
+        r_max = r_max, [description = ""],
     )
     vars = @variables (
-        f_T(t), 
-        f_R(t),
-        f_Ψ(t),
-        T(t),
-        Sᵥ(t),
-        dSᵥ(t), 
-        LAI(t),
-        dLAI(t),
-        Ψ(t),
-        Sᵣ(t),
-        dSᵣ(t),
+        f_T(t), [description = ""],
+        f_R(t), [description = ""],
+        f_Ψ(t), [description = ""],
+        T(t), [description = ""],
+        Sᵥ(t), [description = ""],
+        dSᵥ(t), [description = ""],
+        LAI(t), [description = ""],
+        dLAI(t), [description = ""],
+        Ψ(t), [description = ""],
+        Sᵣ(t), [description = ""],
+        dSᵣ(t), [description = ""],
     )
     eqs = [
         f_T ~ (((Tmax - T)/(Tmax-Topt))*((T - Tmin)/(Topt-Tmin))^((Topt-Tmin)/(Tmax-Topt)))^1.0,
@@ -141,4 +156,31 @@ function phenology_module(; name, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ, Ψ_
     ]
     system = ODESystem(eqs, t; name)
     return system
+end
+
+# # Module connections
+function soil_connection(; name, dz)
+    params = @parameters(
+        dz = dz, [description = "Layer width"],
+    )
+    @variables (
+        F(t), [description = "Water flux from compartment 2 to compartment 1"],
+        K_half(t), [description = "Hydraulic conductivity of connection"],
+        K_1(t), [description = "Hydraulic conductivity of compartment 1"],
+        K_2(t), [description = "Hydraulic conductivity of compartment 2"],
+        Ψ_1(t), [description = "Total water potential of compartment 1"],
+        Ψ_2(t), [description = "Total water potential of compartment 2"],
+    )
+    eqs = [
+        F ~ K_half * ( (Ψ_2-Ψ_1) / dz -  dz/dz ),
+        K_half ~ 2 / (1/K_1 + 1/K_2),
+    ]
+
+    get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK) = [
+        connection_MTK.Ψ_1 ~ node_MTK.Ψ,
+        connection_MTK.Ψ_2 ~ nb_node_MTK.Ψ,
+        connection_MTK.K_1 ~ node_MTK.K,
+        connection_MTK.K_2 ~ nb_node_MTK.K,
+    ]
+    return System(eqs, t; name), get_connection_eqset
 end

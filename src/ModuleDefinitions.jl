@@ -4,36 +4,36 @@ D = Differential(t)
 # # Modules
 # ## Translated
 function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
-    ρ_w = 1.0 # g / cm^3
-    g = 9.8 * 1.0e-5 # hN / g
-    Pₕ = ρ_w * g * z # MPa
+    ρ_w = 1.0 # Density of water [g cm^-3]
+    g = 9.8 * 1.0e-5 # Gravitational acceleration [MPa cm^2 g^-1]
+    Pₕ = ρ_w * g * z # Gravitational water potential [MPa]
 
-    params = @parameters(
-        α = α, [description = ""],
-        n = n, [description = ""],
-        Kₛ = Kₛ, [description = ""],
-        l = l, [description = ""],
-        θₛ = θₛ, [description = ""],
-        θᵣ = θᵣ, [description = ""],
-        dz = dz, [description = "Layer width"],
-        Pₕ = Pₕ, [description = "Gravitational water potential"],
+    @parameters(
+        α = α, [description = "van Genuchten shape parameter (related to inverse of air entry suction, > 0) [cm^-1]"],
+        n = n, [description = "van Genuchten shape parameter (related to pore size distribution, > 1) [-]"],
+        Kₛ = Kₛ, [description = "Saturated hydraulic conductivity [cm h^-1]"],
+        l = l, [description = "Pore connectivity parameter [-]"],
+        θₛ = θₛ, [description = "Saturated volumetric water content [-]"],
+        θᵣ = θᵣ, [description = "Residual volumetric water content [-]"],
+        dz = dz, [description = "Layer width [cm]"],
+        Pₕ = Pₕ, [description = "Gravitational water potential [MPa]"],
     )
-    vars = @variables (
-        Ψ(t), [description = "Total water potential [?]"], # alias `hT`
-        Ψ_m(t) = Ψ_m, [description = "Matrix water potential [?]"], # alias `h`
-        C(t), [description = "Soil water capacitance [?]"],
-        K(t), [description = "Hydraulic conductivity [?]"],
-        θ(t), [description = "Volumetric water content [?]"],
-        # s(t), [description = "Root water uptake sink term (?) [?]"],
-        F(t), [description = "Water flux [?]"], # alias `q`
-        ΣF(t), [description = "Net water influx [?]"], # alias `dq`
+    @variables (
+        Ψ(t), [description = "Total water potential [MPa]"], # alias `hT`
+        Ψ_m(t) = Ψ_m, [description = "Matric water potential [MPa]"], # alias `h`
+        h(t), [description = "Hydraulic head [cm]"], 
+        C(t), [description = "Soil water capacitance [cm^-1]"],
+        K(t), [description = "Hydraulic conductivity [cm h^-1]"], #eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
+        θ(t), [description = "Volumetric water content [-]"],
+        F(t), [description = "Water flux [cm h^-1]"], # alias `q` eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
+        ΣF(t), [description = "Net water influx [cm h^-1]"], # alias `dq + s`  eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
     )
     eqs = [
         C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
         K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
         θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
 
-        D(Ψ_m) ~ ( ΣF/dz #= - s/dz =# ) / C,
+        D(h) ~ ( ΣF/dz ) / C,
         Ψ ~ Ψ_m + Pₕ # eq. 7 in paper
     ]
 
@@ -41,107 +41,94 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
     return system
 end
 
-# ## TODO
-
-function rootuptake_module(; name,  εₓ, rᵣ, kᵣ, kₓ, Ψ_ref, k_Ψ, kc)
-    params = @parameters (εₓ = εₓ, rᵣ = rᵣ, kᵣ = kᵣ, kₓ = kₓ, Ψ_ref = Ψ_ref, k_Ψ = k_Ψ, kc = kc)
-    vars = @variables (        
-        F(t)[1:nz], [description = ""],
-        Tp(t), [description = ""],
-        Kₓ(t)[1:nz], [description = ""],
-        dz(t), [description = ""],
-        lᵣ(t)[1:nz], [description = ""],
-        Hₓ(t)[1:nz], [description = ""],
-        dHₓ(t)[1:nz], [description = ""],
-        dWₓ(t)[1:nz], [description = ""],
-        Wₓ(t)[1:nz], [description = ""],
-        hₛ(t)[1:nz], [description = ""],
-        dhₛ(t), [description = ""],
-        Hₛ(t)[1:nz], [description = ""],
-        s(t)[1:nz], 
-        r_rhiz(t)[1:nz], [description = ""],
-        rld(t)[1:nz], 
-        ρ(t)[1:nz], [description = ""],
-        B(t)[1:nz], [description = ""],
-        Hᵣₛ(t)[1:nz], [description = ""],
-        Kᵣ(t)[1:nz], 
-        uptake(t)[1:nz], 
-        H₀(t), [description = ""],
-        LAI(t), [description = ""],
-        f_Ψ(t), [description = ""],
+function rootuptake_module(; name, εₓ, rᵣ, dz, rld)
+    @constants ρ_w = 1.0 # density of water [g cm^-3]
+    @parameters (
+        εₓ = εₓ, [description = "Root xylem elastic modulus [MPa]"],
+        rᵣ = rᵣ, [description = "Root radius [cm]"],
+        #! changed to param
+        dz = dz, [description = "Layer width [cm]"],
+        rld = rld, [description = "Root length density [cm cm^-3]"],
+    )
+    @variables (        
+        lᵣ(t), [description = "Root length in soil layer i [cm]"],
+        r_rhiz(t), [description = "Root-soil interface radius [cm]"],
+        ρ(t), [description = "Root-soil contact fraction [-]"],
+        B(t), [description = "Root-soil interface conductance [cm h^-1]"],
+        Aᵣ(t), [description = "Normalized root surface area [cm]"], #! ? (see equation)
+        Vᵣ(t), [description = "Normalized root volume [cm h^-1]"], #! ?
+        Wₓ(t), [description = "Water mass of root xylem compartment i [g]"],
+        dWₓ(t), [description = "Change in water mass of root xylem compartment i [g h^-1]"],
+        Hₓ(t), [description = "Water potential of root xylem compartment i [cm]"],
+        dHₓ(t), [description = "Change in water potential of root xylem compartment i [cm h^-1]"],
+        ΣF(t), [description = "Net water influx [cm h^-1]"],
     )
     eqs = [
-        # root-soil dimension aspects
-        [lᵣ[i] ~ rld[i] * dz for i in 1:nz]..., # implicit multiplication with 1 cm² soil surface area
-        [r_rhiz[i] ~ rhizo_fun(rld[i]) for i in 1:nz]...,
-        [ρ[i] ~ r_rhiz[i] / rᵣ for i in 1:nz]...,
-        [B[i] ~ B_fun(ρ[i]) for i in 1:nz]...,
+        lᵣ ~ rld * dz, # total root length #! implicit multiplication with 1 cm² soil surface area
+        r_rhiz ~ 1/sqrt(π * rld), # root-soil interface
+        ρ ~ r_rhiz / rᵣ, # root-soil contact fraction
+        B ~ 2*(ρ^2 - 1) / (1 - (0.53*ρ)^2 + 2*ρ^2*(log(0.53) + log(ρ))), # root-soil interface conductance
+        Aᵣ ~ (2*π * rᵣ * lᵣ) / rᵣ, # normalized root surface area? #! `/ rᵣ` ?
+        Vᵣ ~ 1 / dz * (lᵣ/dz * π * rᵣ^2), # normalized xylem volume? #! double `/dz`?
+        Wₓ ~ lᵣ * π * ρ_w * rᵣ^2, # representative "water mass" of the root xylem (g)
+        dWₓ ~ ΣF, # change in water mass of the root xylem #! why not enforce D(Wₓ) ~ Wₓ
+        dHₓ ~ εₓ / Wₓ*dWₓ, # change in xylem water potential (cm h⁻¹)
+        D(Hₓ) ~ dHₓ,
+    ]
+    
+    system = ODESystem(eqs, t; name)
+    return system
+end
 
-        # Hydraulic conductivities based on root dimensions and intrinsic k's (h⁻¹)
-        [Kᵣ[i] ~  kᵣ * (2*π * rᵣ * lᵣ[i]) / rᵣ  for i in 1:nz]...,
-        [Kₓ[i] ~ kₓ / dz * (lᵣ[i]/dz * π * rᵣ^2) for i in 1:nz]...,
+# ## TODO
+#=
+function rootbase()
 
-        # root xylem flows (positive upward) (cm h⁻¹)
-        F[1] ~ (Hₓ[1] - H₀)*Kₓ[1],
-        [F[i] ~ (Hₓ[i] - Hₓ[i-1])*(Kₓ[i]*Kₓ[i-1]*2/(Kₓ[i] + Kₓ[i-1])) for i in 2:nz]..., 
-        
-        # solving for root-soil interface water potential (cm)
-        [kᵣ * Hₓ[i] + B[i] * Hₛ[i] * ksoilfun(hₛ[i], Hᵣₛ[i] - z[i]) ~
-         Hᵣₛ[i] * (B[i] * ksoilfun(hₛ[i], Hᵣₛ[i] - z[i]) + kᵣ)
-         for i in 1:nz]...,
+    (
+        H₀(t), [description = "Water potential at the root base [cm]"],
+        f_Ψ(t), [description = "Soil water stress factor [-]"],
+        Tp(t), [description = "Transpiration rate [cm h^-1]"],
+        Ψ_ref = Ψ_ref, [description = "Reference water potential [MPa]"],
+        k_Ψ = k_Ψ, [description = "Water potential sensitivity coefficient [-]"],
+        kc = kc, [description = "Crop coefficient for transpiration [-]"],
+    )
 
-        # water uptake s (cm h⁻¹) per soil layer i
-        [s[i] ~ (Hᵣₛ[i] - Hₓ[i]) * Kᵣ[i] for i in 1:nz]...,
-
-        # representative "water mass" of the root xylem (g)
-        [Wₓ[i] ~ lᵣ[i] * π * ρ_w * rᵣ^2 for i in 1: nz]...,
-
-        # change in water mass of the root xylem (only for change in Hₓ, not for integration!!!)
-        dWₓ[nz] ~ s[nz] - F[nz], 
-        [dWₓ[i] ~ s[i] - F[i] + F[i+1] for i in 1:(nz-1)]...,
-
-        # change in xylem water potential (cm h⁻¹)
-        dHₓ[1] ~ dh_fun(Wₓ[1], dWₓ[1], εₓ, tiny, dhₛ),
-        [dHₓ[i] ~ dh_fun(Wₓ[i], dWₓ[i], εₓ, tiny, dHₓ[i-1])  for i in 2:nz]..., 
-
+    [
         # collar water potential (cm)
         H₀ ~ max(Hₓ[1] - Tp/(Kₓ[1] + tiny), hmin),
         #Ψ ~ H₀ * 98.1e-6,
         f_Ψ ~ 0.5 *( 1 + tanh(k_Ψ * (H₀ * 98.1e-6 - Ψ_ref))),
         Tp ~ ET0_inputfun(t) /10.0 * kc * (1 - exp(-0.45*(LAI))) * f_Ψ,
-        # differential equations
-        [D(Hₓ[i]) ~ dHₓ[i] for i in 1:nz]...,
-        [D(uptake[i]) ~ s[i] for i in 1:nz]...,
     ]
-    system = ODESystem(eqs, t; name)
-    return system
+
 end
+=#
 
 function phenology_module(; name, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ, Ψ_ref, r_LAI, r_max)
-    params = @parameters(
-        Tmin = Tmin, [description = ""],
-        Tmax = Tmax, [description = ""],
-        Topt = Topt, [description = ""],
-        v_max = v_max, [description = ""],
-        S_ref = S_ref, [description = ""],
-        k_s = k_s, [description = ""],
-        k_Ψ = k_Ψ, [description = ""],
-        Ψ_ref = Ψ_ref, [description = ""],
-        r_LAI = r_LAI, [description = ""],
-        r_max = r_max, [description = ""],
+    @parameters(
+        Tmin = Tmin, [description = "minimum temperature for growth [°C]"],
+        Tmax = Tmax, [description = "maximum temperature for growth [°C]"],
+        Topt = Topt, [description = "optimal temperature for growth [°C]"],
+        v_max = v_max, [description = "maximum rate of vegetative development [h^-1]"],
+        S_ref = S_ref, [description = "vegetative development stage at which reproductive development starts [-]"],
+        k_s = k_s, [description = "sensitivity of development to vegetative development stage [-]"],
+        k_Ψ = k_Ψ, [description = "sensitivity of development to water potential [-]"],
+        Ψ_ref = Ψ_ref, [description = "reference water potential for LAI development [MPa]"],
+        r_LAI = r_LAI, [description = "rate of change of LAI with respect to vegetative development stage [m^2 m^-2 h^-1]"],
+        r_max = r_max, [description = "maximum rate of reproductive development [h^-1]"],
     )
-    vars = @variables (
-        f_T(t), [description = ""],
-        f_R(t), [description = ""],
-        f_Ψ(t), [description = ""],
-        T(t), [description = ""],
-        Sᵥ(t), [description = ""],
-        dSᵥ(t), [description = ""],
-        LAI(t), [description = ""],
-        dLAI(t), [description = ""],
-        Ψ(t), [description = ""],
-        Sᵣ(t), [description = ""],
-        dSᵣ(t), [description = ""],
+    @variables (
+        f_T(t), [description = "Effect of temperature on development [-]"],
+        f_R(t), [description = "Effect of vegetative development stage on reproductive development [-]"],
+        f_Ψ(t), [description = "Effect of water potential on development [-]"],
+        T(t), [description = "Air temperature [°C]"],
+        Sᵥ(t), [description = "Vegetative development stage [-]"],
+        dSᵥ(t), [description = "Rate of change of vegetative development stage [h^-1]"],
+        LAI(t), [description = "Leaf area index [m^2 m^-2]"],
+        dLAI(t), [description = "Rate of change of leaf area index [m^2 m^-2 h^-1]"],
+        Ψ(t), [description = "Water potential [MPa]"],
+        Sᵣ(t), [description = "Reproductive development stage [-]"],
+        dSᵣ(t), [description = "Rate of change of reproductive development stage [h^-1]"],
     )
     eqs = [
         f_T ~ (((Tmax - T)/(Tmax-Topt))*((T - Tmin)/(Topt-Tmin))^((Topt-Tmin)/(Tmax-Topt)))^1.0,
@@ -155,13 +142,14 @@ function phenology_module(; name, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ, Ψ_
         D(Sᵣ) ~ dSᵣ, 
     ]
     system = ODESystem(eqs, t; name)
+
     return system
 end
 
 # # Module connections
 function soil_connection(; name, dz)
-    params = @parameters(
-        dz = dz, [description = "Layer width"],
+    @parameters(
+        dz = dz, [description = "Layer width [cm]"],
     )
     @variables (
         F(t), [description = "Water flux from compartment 2 to compartment 1"],
@@ -182,5 +170,78 @@ function soil_connection(; name, dz)
         connection_MTK.K_1 ~ node_MTK.K,
         connection_MTK.K_2 ~ nb_node_MTK.K,
     ]
+    return System(eqs, t; name), get_connection_eqset
+end
+
+function root_connection(; name, kₓ)
+    @parameters(
+        kₓ = kₓ, [description = "Intrinsic axial root hydraulic conductivity [h^-1]"],
+    )
+    @variables (
+        F(t), [description = "Water flux from compartment 2 to compartment 1 [cm h^-1]"],
+        K_half(t), [description = "Hydraulic conductivity of connection [cm h^-1]"],
+        Kₓ_1(t), [description = "Hydraulic xylem conductivity of compartment 1 [cm h^-1]"],
+        Kₓ_2(t), [description = "Hydraulic xylem conductivity of compartment 2 [cm h^-1]"],
+        Hₓ_1(t), [description = "Water potential of root xylem compartment 1 [cm]"],
+        Hₓ_2(t), [description = "Water potential of root xylem compartment 2 [cm]"],
+        Vᵣ_1(t), [description = "Normalized root volume of compartment 1 [cm h^-1]"],
+        Vᵣ_2(t), [description = "Normalized root volume of compartment 2 [cm h^-1]"],
+    )
+    eqs = [
+        F ~ K_half * (Hₓ_2 - Hₓ_1), 
+        #! can simplifiy next 3 equations into 1 if we dont care about Kₓ
+        K_half ~ Kₓ_1*Kₓ_2 * 2/(Kₓ_1 + Kₓ_2), 
+        Kₓ_1 ~ kₓ * Vᵣ_1,
+        Kₓ_2 ~ kₓ * Vᵣ_2,
+    ]
+
+    get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK) = [
+        connection_MTK.Hₓ_1 ~ node_MTK.Hₓ,
+        connection_MTK.Hₓ_2 ~ nb_node_MTK.Hₓ,
+        connection_MTK.Vᵣ_1 ~ node_MTK.Vᵣ,
+        connection_MTK.Vᵣ_2 ~ nb_node_MTK.Vᵣ,
+    ]
+    return System(eqs, t; name), get_connection_eqset
+end
+
+
+function root_soil_connection(; name, kᵣ)
+    @parameters(
+        kᵣ = kᵣ, [description = "Intrinsic radial root hydraulic conductivity [h^-1]"],
+    )
+    @variables (
+        F(t), [description = "Water flux from compartment 2 to compartment 1 [cm h^-1]"],
+        Kᵣ(t), [description = "Radial root hydraulic conductivity (conductivity of connection) [cm h^-1]"],
+        Hₓ(t), [description = "Water potential of root xylem compartment [cm]"],
+        Hₛ(t), [description = "Water potential of soil [cm]"],
+        Hᵣₛ(t), [description = "Water potential at the root-soil interface [cm]"],
+        Aᵣ(t), [description = "Normalized root surface area [cm]"],
+        Vᵣ(t), [description = "Normalized root volume [cm h^-1]"],
+        B(t), [description = "Root-soil interface conductance [cm h^-1]"],
+    )
+    eqs = [
+        F ~ (Hᵣₛ - Hₓ) * Kᵣ,
+        Kᵣ ~ kᵣ * Aᵣ, # Hydraulic conductivities based on root dimensions and intrinsic k's (h⁻¹)
+        kᵣ * Hₓ + B * Hₛ * ksoilfun(hₛ, Hᵣₛ - z) ~ Hᵣₛ * (B * ksoilfun(hₛ, Hᵣₛ - z) + kᵣ),
+    ]
+
+    get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK, original_order) = (
+        original_order ?
+        [
+            connection_MTK.Hₓ ~ node_MTK.Hₓ,
+            connection_MTK.Aᵣ ~ node_MTK.Aᵣ,
+            connection_MTK.Vᵣ ~ node_MTK.Vᵣ,
+            connection_MTK.B ~ node_MTK.B,
+            connection_MTK.Hₛ ~ nb_node_MTK.Hₓ,
+        ] :
+        [
+            connection_MTK.Hₓ ~ nb_node_MTK.Hₓ,
+            connection_MTK.Aᵣ ~ nb_node_MTK.Aᵣ,
+            connection_MTK.Vᵣ ~ nb_node_MTK.Vᵣ,
+            connection_MTK.B ~ nb_node_MTK.B,
+            connection_MTK.Hₛ ~ node_MTK.Hₓ,
+        ]
+    )
+    
     return System(eqs, t; name), get_connection_eqset
 end

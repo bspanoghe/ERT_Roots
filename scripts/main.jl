@@ -14,9 +14,13 @@ struct Root{T} <: Node
     rld::T
 end
 
+struct Shoot <: Node end
+
 const dz = 1.0
 n_layers = 3
 add_roots = true
+add_shoot = true
+
 soil_graph = sum([Soil(-i*dz) for i in 1:n_layers])
 
 if !add_roots
@@ -26,7 +30,7 @@ if !add_roots
         (1, 2) => (:Air, getnodes(soil_graph)[1]),
         (2, 3) => (getnodes(soil_graph)[end], :Drainage),
     ]
-else
+elseif add_roots && !add_shoot
     root_graph = sum([Root(-i*dz, 1.0) for i in 1:n_layers])
     graphs = [Air(), soil_graph, Drainage(), root_graph]
 
@@ -40,6 +44,22 @@ else
         (1, 2) => (:Air, getnodes(soil_graph)[1]),
         (2, 3) => (getnodes(soil_graph)[end], :Drainage),
         (2, 4) => is_root_soil_connected,
+    ]
+else # root and shoot
+    root_graph = sum([Root(-i*dz, 1.0) for i in 1:n_layers])
+    graphs = [Air(), soil_graph, Drainage(), root_graph, Shoot()]
+
+    if n_layers == 1
+        is_root_soil_connected(root, soil) = true
+    else
+        is_root_soil_connected(root, soil) = data(root).z == data(soil).z
+    end
+
+    intergraph_connections = [
+        (1, 2) => (:Air, getnodes(soil_graph)[1]),
+        (2, 3) => (getnodes(soil_graph)[end], :Drainage),
+        (2, 4) => is_root_soil_connected,
+        (4, 5) => (getnodes(root_graph)[1], :Shoot)
     ]
 end
 
@@ -109,8 +129,7 @@ function integrate(f, lb, ub; n = 1000)
     sum(f.(int_range)) * Δx
 end
 
-
-
+const ET0_inputfun(t) = 3600e-7(sin(t*2*pi/24) + 1)
 
 # quick tests
 finesoil = (θₛ = 0.43, θᵣ = 0.078, α = 0.0083, n = 1.2539, Kₛ = 2.272 / (24), l = 0.5)
@@ -120,6 +139,8 @@ plot(h -> vanGenuchten_C(h, values(finesoil)[1:4]...), xlims = (-1000.0, 100.0))
 
 plot(h -> Khfunc(h, values(finesoil)[3:end]...), xlims = (-1000, 100))
 plot(h -> ksoilfun(h, -10.0, values(finesoil)[3:end]...), xlims = (-1000, 100), ylims = (0.0, 0.05))
+
+plot(ET0_inputfun, xlims = (0, 48))
 
 # ### Modules
 
@@ -132,13 +153,15 @@ module_coupling = Dict(
     :Air => [environmental_module, Ψ_air_module],
     :Drainage => [environmental_module, Ψ_soil_module],
     :Root => [rootuptake_module],
+    :Shoot => [shoot_module]
 );
 connecting_modules = Dict(
     (:Air, :Soil) => constant_hydraulic_connection,
     (:Soil, :Soil) => soil_connection,
     (:Soil, :Drainage) => constant_hydraulic_connection,
     (:Root, :Root) => root_connection,
-    (:Root, :Soil) => root_soil_connection
+    (:Root, :Soil) => root_soil_connection,
+    (:Root, :Shoot) => root_collar_connection
 );
 
 plantcoupling = PlantCoupling(; module_coupling, connecting_modules);
@@ -160,7 +183,23 @@ default_changes = Dict(
     :rld => NaN, # assigned in nodes
     :kₓ => 0.1,
     :kᵣ => 0.1,
-    :hₛ => MPa2cm(-3.0)
+    :hₛ => MPa2cm(-3.0),
+    :k_Ψ_transp => 5.0,
+    :kc => 1.0,
+    :Tair => 20.0,
+    :Tmin => 5.0,
+    :Tmax => 42.0, 
+    :Topt => 25.0, 
+    :v_max => 0.012,
+    :S_ref => 11.0,
+    :k_s => 1.0, 
+    :k_Ψ_dev => 4.0, 
+    :Ψ_ref => -0.75, 
+    :r_LAI => 0.5, 
+    :r_max => 0.005, 
+    :Sᵥ => 0.0, 
+    :Sᵣ => 0.0, 
+    :LAI => 0.0
 );
 module_defaults = Dict(
     :Air => Dict(:W_r => 0.9),
@@ -179,7 +218,8 @@ prob = ODEProblem(system, [], time_span, sparse = true);
 sol = solve(prob, FBDF());
 plotgraph(sol, plantstructure, varname = :θ, structmod = :Soil)
 plotgraph(sol, plantstructure, varname = :Wₓ, structmod = :Root, ylims = (0, 0.1))
-plotgraph(sol, plantstructure, varname = :Ψ, structmod = [:Soil, :Drainage, :Air, :Root], ylims = (-100, 0))
+plotgraph(sol, plantstructure, varname = :W, structmod = :Shoot, ylims = (0, 0.1))
+plotgraph(sol, plantstructure, varname = :Ψ, structmod = [:Soil, :Drainage, :Air, :Root, :Shoot], ylims = (-100, 0))
 plotgraph(sol, plantstructure, varname = :Ψ, structmod = [:Soil, :Drainage, :Air, :Root])
 
 plotgraph(sol, plantstructure, varname = :ΣF, structmod = [:Air, :Drainage])

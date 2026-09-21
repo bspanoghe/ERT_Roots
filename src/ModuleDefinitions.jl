@@ -42,8 +42,7 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         Ψ ~ Ψ_m + Pₕ # eq. 7 in paper
     ]
 
-    system = ODESystem(eqs, t; name)
-    return system
+    return ODESystem(eqs, t; name)
 end
 
 function rootuptake_module(; name, εₓ, rᵣ, dz, rld, Ψ)
@@ -80,75 +79,72 @@ function rootuptake_module(; name, εₓ, rᵣ, dz, rld, Ψ)
         D(Ψ) ~ dΨ,
     ]
     
-    system = ODESystem(eqs, t; name)
-    return system
+    return ODESystem(eqs, t; name)
 end
 
-# ## TODO
-#=
-function rootbase()
-
-    (
-        Ψ₀(t), [description = "Water potential at the root base [cm]"],
-        f_Ψ(t), [description = "Soil water stress factor [-]"],
-        Tp(t), [description = "Transpiration rate [cm h^-1]"],
-        Ψ_ref = Ψ_ref, [description = "Reference water potential [MPa]"],
-        k_Ψ = k_Ψ, [description = "Water potential sensitivity coefficient [-]"],
-        kc = kc, [description = "Crop coefficient for transpiration [-]"],
+function shoot_module(; 
+        name, k_Ψ_transp, kc, Tair, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ_dev, Ψ_ref, r_LAI, r_max, Sᵥ, Sᵣ, LAI
     )
-
-    [
-        # collar water potential (cm)
-        Ψ₀ ~ max(Ψₓ[1] - Tp/(Kₓ[1] + tiny), hmin),
-        #Ψ ~ Ψ₀ * 98.1e-6,
-        f_Ψ ~ 0.5 *( 1 + tanh(k_Ψ * (Ψ₀ * 98.1e-6 - Ψ_ref))),
-        Tp ~ ET0_inputfun(t) /10.0 * kc * (1 - exp(-0.45*(LAI))) * f_Ψ,
-    ]
-
-end
-
-function phenology_module(; name, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ, Ψ_ref, r_LAI, r_max)
     @parameters(
+        # root base
+        Ψ_ref = Ψ_ref, [description = "Reference water potential [MPa]"],
+        k_Ψ_transp = k_Ψ_transp, [description = "Water potential sensitivity coefficient [-]"],
+        kc = kc, [description = "Crop coefficient for transpiration [-]"],
+
+        # phenology
+        Tair = Tair, [description = "Air temperature [°C]"], #! changed to param
         Tmin = Tmin, [description = "minimum temperature for growth [°C]"],
         Tmax = Tmax, [description = "maximum temperature for growth [°C]"],
         Topt = Topt, [description = "optimal temperature for growth [°C]"],
-        v_max = v_max, [description = "maximum rate of vegetative development [h^-1]"],
-        S_ref = S_ref, [description = "vegetative development stage at which reproductive development starts [-]"],
         k_s = k_s, [description = "sensitivity of development to vegetative development stage [-]"],
-        k_Ψ = k_Ψ, [description = "sensitivity of development to water potential [-]"],
-        Ψ_ref = Ψ_ref, [description = "reference water potential for LAI development [MPa]"],
-        r_LAI = r_LAI, [description = "rate of change of LAI with respect to vegetative development stage [m^2 m^-2 h^-1]"],
+        S_ref = S_ref, [description = "vegetative development stage at which reproductive development starts [-]"],
+        k_Ψ_dev = k_Ψ_dev, [description = "sensitivity of development to water potential [-]"],
+        v_max = v_max, [description = "maximum rate of vegetative development [h^-1]"],
         r_max = r_max, [description = "maximum rate of reproductive development [h^-1]"],
+        r_LAI = r_LAI, [description = "rate of change of LAI with respect to vegetative development stage [m^2 m^-2 h^-1]"],
     )
     @variables (
+        # root base
+        f_Ψ_transp(t), [description = "Soil water stress factor [-]"],
+        Ψ₀(t), [description = "Water potential at the root base [cm]"],
+        Tp(t), [description = "Transpiration rate [cm h^-1]"],
+
+        # phenology
+        Ψ(t), [description = "Water potential of shoots [MPa]"],
         f_T(t), [description = "Effect of temperature on development [-]"],
         f_R(t), [description = "Effect of vegetative development stage on reproductive development [-]"],
-        f_Ψ(t), [description = "Effect of water potential on development [-]"],
-        T(t), [description = "Air temperature [°C]"],
-        Sᵥ(t), [description = "Vegetative development stage [-]"],
+        f_Ψ_dev(t), [description = "Effect of water potential on development [-]"],
         dSᵥ(t), [description = "Rate of change of vegetative development stage [h^-1]"],
-        LAI(t), [description = "Leaf area index [m^2 m^-2]"],
-        dLAI(t), [description = "Rate of change of leaf area index [m^2 m^-2 h^-1]"],
-        Ψ(t), [description = "Water potential [MPa]"],
-        Sᵣ(t), [description = "Reproductive development stage [-]"],
         dSᵣ(t), [description = "Rate of change of reproductive development stage [h^-1]"],
+        dLAI(t), [description = "Rate of change of leaf area index [m^2 m^-2 h^-1]"],
+        Sᵥ(t) = Sᵥ, [description = "Vegetative development stage [-]"],
+        Sᵣ(t) = Sᵣ, [description = "Reproductive development stage [-]"],
+        LAI(t) = LAI, [description = "Leaf area index [m^2 m^-2]"],
+
+        #! added
+        W(t) = 10.0, [description = "Water content [g]"],
+        ΣF(t), [description = "Net water influx [cm h^-1]"],
     )
     eqs = [
-        f_T ~ (((Tmax - T)/(Tmax-Topt))*((T - Tmin)/(Topt-Tmin))^((Topt-Tmin)/(Tmax-Topt)))^1.0,
+        # f_Ψ_transp ~ 0.5 *( 1 + tanh(k_Ψ_transp * (Ψ - Ψ_ref))), #! ?
+        Tp ~ ET0_inputfun(t)/10.0 * kc * (1 - exp(-0.45*(LAI))) * f_Ψ_transp, #! ?
+
+        Ψ ~ Ψ₀ * 98.1e-6, #! why?
+        f_T ~ (Tmax - Tair)/(Tmax - Topt) * ((Tair - Tmin)/(Topt-Tmin))^((Topt-Tmin)/(Tmax-Topt)),
         f_R ~ 0.5 *( 1 + tanh(k_s * (S_ref - Sᵥ))),
-        f_Ψ ~ 0.5 *( 1 + tanh(k_Ψ * (Ψ - Ψ_ref))),
+        f_Ψ_dev ~ 0.5 *( 1 + tanh(k_Ψ_dev * (Ψ - Ψ_ref))),
         dSᵥ ~ v_max * f_T * f_R * 0.5 *( 1 + tanh(10 * (t - 1000))),
         dSᵣ ~ (1-f_R) * r_max * f_T ,
-        dLAI ~ dSᵥ * r_LAI * Sᵥ * (S_ref - Sᵥ)/S_ref * f_Ψ,
+        dLAI ~ dSᵥ * r_LAI * Sᵥ * (S_ref - Sᵥ)/S_ref * f_Ψ_dev,
         D(Sᵥ) ~ dSᵥ,
-        D(LAI) ~ dLAI,
         D(Sᵣ) ~ dSᵣ, 
+        D(LAI) ~ dLAI,
+        D(W) ~ ΣF, #! added
     ]
     system = ODESystem(eqs, t; name)
 
     return system
 end
-=#
 
 # # Module connections
 function soil_connection(; name, dz)
@@ -251,5 +247,44 @@ function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
         ]
     )
     
+    return System(eqs, t; name), get_connection_eqset
+end
+
+function root_collar_connection(; name, original_order, kₓ)
+    @parameters(
+        kₓ = kₓ, [description = "Intrinsic axial root hydraulic conductivity [h^-1]"],
+    )
+    @variables (
+        F(t), [description = "Water flux from compartment 2 (collar) to compartment 1 (root)"],
+        Kₓ(t), [description = "Hydraulic xylem conductivity of root [cm h^-1]"],
+        Ψᵣ(t), [description = "Total water potential of root"],
+        Ψ₀(t), [description = "Total water potential of collar"],
+        Tp(t), [description = "Transpiration rate [cm h^-1]"],
+        Vᵣ(t), [description = "Normalized root volume [cm h^-1]"],
+    )
+
+    polarity = original_order ? -1 : 1
+
+    eqs = [
+        F ~ polarity * Tp,
+        Ψ₀ ~ Ψᵣ - Tp/Kₓ, #! ?
+        Kₓ ~ kₓ * Vᵣ,
+    ]
+
+    get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK, original_order) = (
+        original_order ?    
+        [
+            connection_MTK.Ψᵣ ~ node_MTK.Ψ,
+            connection_MTK.Ψ₀ ~ nb_node_MTK.Ψ₀,
+            connection_MTK.Tp ~ nb_node_MTK.Tp,
+            connection_MTK.Vᵣ ~ node_MTK.Vᵣ,
+        ] :
+        [
+            connection_MTK.Ψᵣ ~ nb_node_MTK.Ψ,
+            connection_MTK.Ψ₀ ~ node_MTK.Ψ₀,
+            connection_MTK.Tp ~ node_MTK.Tp,
+            connection_MTK.Vᵣ ~ nb_node_MTK.Vᵣ,
+        ]
+    ) 
     return System(eqs, t; name), get_connection_eqset
 end

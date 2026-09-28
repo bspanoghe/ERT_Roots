@@ -12,11 +12,11 @@ plot!(timerange, Evaporation.(timerange), xlims = (0, 2400))
 plot(timerange, Biomass_inputfun.(timerange))
 plot(timerange, LAI.(timerange))
 
- tanh(a_g * (P - P_ref)) 
+tanh(a_g * (P - P_ref))
 
- P_ref = -1.0
- P = collect(-1.70:0.1:0)
- a_g = 3.0
+P_ref = -1.0
+P = collect(-1.70:0.1:0)
+a_g = 3.0
 plot(P, 0.5 .+ 0.5 .*tanh.(a_g * (P .- P_ref)))
 plot(P, 0.5 .+ 0.5 .*tanh.(a_g * (P_ref .- P)))
 

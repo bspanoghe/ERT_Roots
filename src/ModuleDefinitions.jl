@@ -34,9 +34,10 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         z(t) = z, [description = "Layer depth [cm]"],
     )
     eqs = [
-        C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
-        K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
-        θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
+        h * ρ_w * g ~ Ψ_m, 
+        C ~ vanGenuchten_C(h, θₛ, θᵣ, α, n),
+        K ~ vanGenuchten_K(h, θₛ, θᵣ, α, n, Kₛ, l),
+        θ ~ vanGenuchten_θ(h, θₛ, θᵣ, α, n),
 
         D(z) ~ 0,
         D(Ψ_m) ~ ( ΣF/dz ) / C,
@@ -181,12 +182,12 @@ function soil_connection(; name, dz)
         dz = dz, [description = "Layer width [cm]"],
     )
     @variables (
-        F(t), [description = "Water flux from compartment 2 to compartment 1"],
-        K_half(t), [description = "Hydraulic conductivity of connection"],
-        K_1(t), [description = "Hydraulic conductivity of compartment 1"],
-        K_2(t), [description = "Hydraulic conductivity of compartment 2"],
-        Ψ_1(t), [description = "Total water potential of compartment 1"],
-        Ψ_2(t), [description = "Total water potential of compartment 2"],
+        F(t), [description = "Water flux from compartment 2 to compartment 1 [cm h^-1]"],
+        K_half(t), [description = "Hydraulic conductivity of connection [cm h^-1]"],
+        K_1(t), [description = "Hydraulic conductivity of compartment 1 [cm h^-1]"],
+        K_2(t), [description = "Hydraulic conductivity of compartment 2 [cm h^-1]"],
+        Ψ_1(t), [description = "Total water potential of compartment 1 [cm]"],
+        Ψ_2(t), [description = "Total water potential of compartment 2 [cm]"],
     )
     eqs = [
         F ~ K_half * ( (Ψ_2-Ψ_1) / dz -  dz/dz ),

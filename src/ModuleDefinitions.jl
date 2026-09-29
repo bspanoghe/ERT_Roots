@@ -34,10 +34,9 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         z(t) = z, [description = "Layer depth [cm]"],
     )
     eqs = [
-        h * ρ_w * g ~ Ψ_m, 
-        C ~ vanGenuchten_C(h, θₛ, θᵣ, α, n),
-        K ~ vanGenuchten_K(h, θₛ, θᵣ, α, n, Kₛ, l),
-        θ ~ vanGenuchten_θ(h, θₛ, θᵣ, α, n),
+        C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
+        K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
+        θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
 
         D(z) ~ 0,
         D(Ψ_m) ~ ( ΣF/dz ) / C,

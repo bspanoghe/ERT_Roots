@@ -10,8 +10,8 @@ D = Differential(t)
 # ## Translated
 function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
     ρ_w = 1.0 # Density of water [g cm^-3]
-    g = 9.8 * 1.0e-5 # Gravitational acceleration [MPa cm^2 g^-1]
-    Pₕ = ρ_w * g * z # Gravitational water potential [MPa]
+    g = MPa2cm(9.8e-5) # Gravitational acceleration [cm cm^2 g^-1]
+    Pₕ = ρ_w * g * z # Gravitational water potential [cm]
 
     @parameters(
         α = α, [description = "van Genuchten shape parameter (related to inverse of air entry suction, > 0) [cm^-1]"],
@@ -21,11 +21,11 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         θₛ = θₛ, [description = "Saturated volumetric water content [-]"],
         θᵣ = θᵣ, [description = "Residual volumetric water content [-]"],
         dz = dz, [description = "Layer width [cm]"],
-        Pₕ = Pₕ, [description = "Gravitational water potential [MPa]"],
+        Pₕ = Pₕ, [description = "Gravitational water potential [cm]"],
     )
     @variables (
-        Ψ(t), [description = "Total water potential [MPa]"], # alias `hT`
-        Ψ_m(t) = Ψ_m, [description = "Matric water potential [MPa]"], # alias `h`
+        Ψ(t), [description = "Total water potential [cm]"], # alias `hT`
+        Ψ_m(t) = Ψ_m, [description = "Matric water potential [cm]"], # alias `h`
         C(t), [description = "Soil water capacitance [cm^-1]"],
         K(t), [description = "Hydraulic conductivity [cm h^-1]"], #eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
         θ(t), [description = "Volumetric water content [-]"],
@@ -50,13 +50,13 @@ end
 function rootuptake_module(; name, εₓ, rᵣ, dz, rld, Ψ)
     @constants ρ_w = 1.0 # density of water [g cm^-3]
     @parameters (
-        εₓ = εₓ, [description = "Root xylem elastic modulus [MPa]"],
+        εₓ = εₓ, [description = "Root xylem elastic modulus [cm]"],
         rᵣ = rᵣ, [description = "Root radius [cm]"],
         dz = dz, [description = "Layer width [cm]"],
-        # rld = rld, [description = "Root length density [cm cm^-3]"], # the holy grail
+        # rld = rld, [description = "Root length density [cm cm^-3]"],
     )
     @variables (
-        rld(t) = rld, [description = "Root length density [cm cm^-3]"], # the holy grail
+        rld(t) = rld, [description = "Root length density [cm cm^-3]"],
         lᵣ(t), [description = "Root length in soil layer [cm]"],
         r_rhiz(t), [description = "Root-soil interface radius [cm]"],
         ρ(t), [description = "Root-soil contact fraction [-]"],
@@ -77,7 +77,7 @@ function rootuptake_module(; name, εₓ, rᵣ, dz, rld, Ψ)
         Aᵣ ~ (2*π * rᵣ * lᵣ) / rᵣ, # normalized root surface area
         Vᵣ ~ 1 / dz * (lᵣ/dz * π * rᵣ^2), # normalized root cross-sectional area
         Wₓ ~ lᵣ * π * ρ_w * rᵣ^2, # representative "water mass" of the root xylem (g)
-        dWₓ ~ ΣF, # change in water mass of the root xylem #! why not enforce D(Wₓ) ~ Wₓ (can be numerically unstable if params are wrong)
+        dWₓ ~ ΣF, # change in water mass of the root xylem
         dΨ ~ εₓ / Wₓ*dWₓ, # change in xylem water potential (cm h⁻¹)
         D(Wₓ) ~ dWₓ,
         D(Ψ) ~ dΨ,
@@ -92,7 +92,7 @@ function collar_module(;
     )
     @parameters(
         # root base
-        Ψ_ref = Ψ_ref, [description = "Reference water potential [MPa]"],
+        Ψ_ref = Ψ_ref, [description = "Reference water potential [cm]"],
         k_Ψ_transp = k_Ψ_transp, [description = "Water potential sensitivity coefficient [-]"],
         kc = kc, [description = "Crop coefficient for transpiration [-]"],
 
@@ -148,24 +148,24 @@ end
 
 function Ψ_air_module_cm(; name, T)
     @variables (
-        Ψ(t), [description = "Total water potential"], #, unit = u"MPa"],
-        W_r(t), [description = "Relative water content"], #, unit = u"g / g"],
+        Ψ(t), [description = "Total water potential [cm]"],
+        W_r(t), [description = "Relative water content [g/g]"],
     )
-    @parameters T = T [description = "Temperature"] #, unit = u"°C"]
+    @parameters T = T [description = "Temperature [°C]"]
     @constants (
-        R = 8.314, [description = "Ideal gas constant"], #, unit = u"MPa * cm^3 / K / mol"],
-        V_w = 18, [description = "Molar volume of water"], #, unit = u"cm^3/mol"]
+        R = MPa2cm(8.314), [description = "Ideal gas constant [cm cm^3 K^-1 mol^-1]"],
+        V_w = 18, [description = "Molar volume of water [cm^3/mol]"],
     )
 
-    eqs = [Ψ ~ MPa2cm(R * °C_to_K(T) / V_w * log(W_r))] # Spanner equation (see e.g. https://academic.oup.com/insilicoplants/article/4/1/diab038/6510844)
+    eqs = [Ψ ~ R * °C_to_K(T) / V_w * log(W_r)] # Spanner equation (see e.g. https://academic.oup.com/insilicoplants/article/4/1/diab038/6510844)
 
     return System(eqs, t; name)
 end
 
 function Ψ_soil_module_cm(; name)
     @variables (
-        Ψ(t), [description = "Total water potential"], #, unit = u"cm"],
-        W_r(t), [description = "Relative water content"], #, unit = u"g / g"],
+        Ψ(t), [description = "Total water potential [cm]"],
+        W_r(t), [description = "Relative water content [g g^-1]"],
     )
 
     eqs = [Ψ ~ MPa2cm(soilfunc(W_r))]
@@ -219,7 +219,6 @@ function root_connection(; name, kₓ)
     )
     eqs = [
         F ~ K_half * (Ψₓ_2 - Ψₓ_1), 
-        #! can simplifiy next 3 equations into 1 if we dont care about Kₓ
         K_half ~ Kₓ_1*Kₓ_2 * 2/(Kₓ_1 + Kₓ_2), 
         Kₓ_1 ~ kₓ * Vᵣ_1,
         Kₓ_2 ~ kₓ * Vᵣ_2,
@@ -282,7 +281,7 @@ end
 
 function collar_air_connection(; name, original_order)
     @variables (
-        F(t), [description = "Water flux from compartment 2 (air) to compartment 1 (collar)"],
+        F(t), [description = "Water flux from compartment 2 (air) to compartment 1 (collar) [cm h^-1]"],
         Tp(t), [description = "Transpiration rate [cm h^-1]"],
     )
 

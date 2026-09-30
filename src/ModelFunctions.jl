@@ -17,7 +17,7 @@ function fluxmpfunction(hup, α, n, Ks, l)
 end
 
 function itp_matricflux(h) 
-    lfun = linear_interpolation(hrange, MP, extrapolation_bc=Line())
+    lfun = linear_interpolation(hrange, MP, extrapolation_bc = Line())
     return lfun(h)
 end
 #@register_symbolic itp_matricflux(h)

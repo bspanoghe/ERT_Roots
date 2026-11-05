@@ -166,15 +166,14 @@ default_changes = Dict(
     :dz => dz,
     :W_max => 1e5,
     :z => NaN, # assigned in nodes
-    :Ψ_m => MPa2cm(-3.0),
-    :Ψ => MPa2cm(-1.0),
+    :Ψ_m => MPa2cm(-0.003),
+    :Ψ => MPa2cm(-0.003),
     :εₓ => MPa2cm(10.0),
     :rᵣ => 0.05,
     :dz => dz, 
     :rld => NaN, # assigned in nodes
     :kₓ => 0.1,
     :kᵣ => 0.1,
-    :hₛ => MPa2cm(-3.0),
     :k_Ψ_transp => 5.0,
     :kc => 1.0,
     :Tair => 20.0,
@@ -190,7 +189,8 @@ default_changes = Dict(
     :r_max => 0.005, 
     :Sᵥ => 0.0, 
     :Sᵣ => 0.0, 
-    :LAI => 0.0
+    :LAI => 0.0,
+    :veg_end => 100
 );
 module_defaults = Dict(
     :Air => Dict(:W_r => 0.9),

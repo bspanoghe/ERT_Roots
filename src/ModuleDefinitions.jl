@@ -23,7 +23,7 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         dz = dz, [description = "Layer width [cm]"],
         Pₕ = Pₕ, [description = "Gravitational water potential [cm]"],
     )
-    @variables (
+    @variables(
         Ψ(t), [description = "Total water potential [cm]"], # alias `hT`
         Ψ_m(t) = Ψ_m, [description = "Matric water potential [cm]"], # alias `h`
         C(t), [description = "Soil water capacitance [cm^-1]"],
@@ -34,9 +34,9 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         z(t) = z, [description = "Layer depth [cm]"],
     )
     eqs = [
-        C ~ vanGenuchten_C(Ψ, θₛ, θᵣ, α, n),
-        K ~ vanGenuchten_K(Ψ, θₛ, θᵣ, α, n, Kₛ, l),
-        θ ~ vanGenuchten_θ(Ψ, θₛ, θᵣ, α, n),
+        C ~ vanGenuchten_C(Ψ_m, θₛ, θᵣ, α, n),
+        K ~ vanGenuchten_K(Ψ_m, θₛ, θᵣ, α, n, Kₛ, l),
+        θ ~ vanGenuchten_θ(Ψ_m, θₛ, θᵣ, α, n),
 
         D(z) ~ 0,
         D(Ψ_m) ~ ( ΣF/dz ) / C,
@@ -87,7 +87,7 @@ end
 
 # goes together with rootuptake_module
 function collar_module(; 
-        name, k_Ψ_transp, kc, Tair, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ_dev, Ψ_ref, r_LAI, r_max, Sᵥ, Sᵣ, LAI
+        name, k_Ψ_transp, kc, Tair, Tmin, Tmax, Topt, v_max, S_ref, k_s, k_Ψ_dev, Ψ_ref, r_LAI, r_max, Sᵥ, Sᵣ, LAI, veg_end
     )
     @parameters(
         # root base
@@ -106,6 +106,7 @@ function collar_module(;
         v_max = v_max, [description = "maximum rate of vegetative development [h^-1]"],
         r_max = r_max, [description = "maximum rate of reproductive development [h^-1]"],
         r_LAI = r_LAI, [description = "rate of change of LAI with respect to vegetative development stage [m^2 m^-2 h^-1]"],
+        veg_end = veg_end, [description = "end of vegetative development [h]"]
     )
     @variables (
         # root base
@@ -133,7 +134,7 @@ function collar_module(;
         f_T ~ (Tmax - Tair)/(Tmax - Topt) * ((Tair - Tmin)/(Topt-Tmin))^((Topt-Tmin)/(Tmax-Topt)),
         f_R ~ smoothstep(k_s * (S_ref - Sᵥ)),
         f_Ψ_dev ~ smoothstep(k_Ψ_dev * (Ψ - Ψ_ref)),
-        dSᵥ ~ v_max * f_T * f_R * smoothstep(10 * (t - 1000)), #!
+        dSᵥ ~ v_max * f_T * f_R * (1 - smoothstep(10 * (t - veg_end))), #!
         dSᵣ ~ (1-f_R) * r_max * f_T ,
         dLAI ~ dSᵥ * r_LAI * Sᵥ * (S_ref - Sᵥ)/S_ref * f_Ψ_dev,
         D(Sᵥ) ~ dSᵥ,
@@ -232,10 +233,9 @@ function root_connection(; name, kₓ)
     return System(eqs, t; name), get_connection_eqset
 end
 
-function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
+function root_soil_connection(; name, kᵣ, α, n, Kₛ, l)
     @parameters(
         kᵣ = kᵣ, [description = "Intrinsic radial root hydraulic conductivity [h^-1]"],
-        hₛ = hₛ, [description = "Bulk soil matric potential [cm]"],
         α = α, [description = "van Genuchten shape parameter (related to inverse of air entry suction, > 0) [cm^-1]"],
         n = n, [description = "van Genuchten shape parameter (related to pore size distribution, > 1) [-]"],
         Kₛ = Kₛ, [description = "Saturated hydraulic conductivity [cm h^-1]"],
@@ -247,6 +247,7 @@ function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
         Ψₓ(t), [description = "Water potential of root xylem compartment [cm]"],
         Ψₛ(t), [description = "Water potential of soil [cm]"],
         Ψᵣₛ(t), [description = "Water potential at the root-soil interface [cm]"],
+        Ψ_m(t), [description = "Matric water potential [cm]"],
         Aᵣ(t), [description = "Normalized root surface area [cm]"],
         B(t), [description = "Root-soil interface conductance [cm h^-1]"],
         z(t), [description = "Layer depth [cm]"],
@@ -254,7 +255,7 @@ function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
     eqs = [
         F ~ (Ψᵣₛ - Ψₓ) * Kᵣ,
         Kᵣ ~ kᵣ * Aᵣ, # Hydraulic conductivities based on root dimensions and intrinsic k's (h⁻¹)
-        kᵣ * Ψₓ + B * Ψₛ * ksoilfun(hₛ, Ψᵣₛ - z, α, n, Kₛ, l) ~ Ψᵣₛ * (B * ksoilfun(hₛ, Ψᵣₛ - z, α, n, Kₛ, l) + kᵣ),
+        kᵣ * Ψₓ + B * Ψₛ * ksoilfun(Ψ_m, Ψᵣₛ - z, α, n, Kₛ, l) ~ Ψᵣₛ * (B * ksoilfun(Ψ_m, Ψᵣₛ - z, α, n, Kₛ, l) + kᵣ),
     ]
 
     get_connection_eqset(node_MTK, nb_node_MTK, connection_MTK, original_order) = (
@@ -264,6 +265,7 @@ function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
             connection_MTK.Aᵣ ~ node_MTK.Aᵣ,
             connection_MTK.B ~ node_MTK.B,
             connection_MTK.Ψₛ ~ nb_node_MTK.Ψ,
+            connection_MTK.Ψ_m ~ nb_node_MTK.Ψ_m,
             connection_MTK.z ~ nb_node_MTK.z,
         ] :
         [
@@ -271,6 +273,7 @@ function root_soil_connection(; name, kᵣ, hₛ, α, n, Kₛ, l)
             connection_MTK.Aᵣ ~ nb_node_MTK.Aᵣ,
             connection_MTK.B ~ nb_node_MTK.B,
             connection_MTK.Ψₛ ~ node_MTK.Ψ,
+            connection_MTK.Ψ_m ~ node_MTK.Ψ_m,
             connection_MTK.z ~ node_MTK.z,
         ]
     )

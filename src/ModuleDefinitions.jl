@@ -8,7 +8,7 @@ D = Differential(t)
 
 # # Modules
 # ## Translated
-function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
+function soil_module(; name, Ψ, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
     ρ_w = 1.0 # Density of water [g cm^-3]
     g = MPa2cm(9.8e-5) # Gravitational acceleration [cm cm^2 g^-1]
     Pₕ = ρ_w * g * z # Gravitational water potential [cm]
@@ -24,9 +24,9 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         Pₕ = Pₕ, [description = "Gravitational water potential [cm]"],
     )
     @variables(
-        Ψ(t), [description = "Total water potential [cm]"], # alias `hT`
-        Ψ_m(t) = Ψ_m, [description = "Matric water potential [cm]"], # alias `h`
-        C(t), [description = "Soil water capacitance [cm^-1]"],
+        Ψ(t) = Ψ, [description = "Total water potential [cm]"], # alias `hT`
+        Ψ_m(t), [description = "Matric water potential [cm]"], # alias `h`
+        W(t), [description = "Water content [g]"],
         K(t), [description = "Hydraulic conductivity [cm h^-1]"], #eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
         θ(t), [description = "Volumetric water content [-]"],
         F(t), [description = "Water flux [cm h^-1]"], # alias `q` eigenlijk moeten we dit zien als g per cm² per h, mits ρ_w = 1.0 g cm^-3
@@ -34,12 +34,12 @@ function soil_module(; name, Ψ_m, α, n, Kₛ, l, θₛ, θᵣ, dz, z)
         z(t) = z, [description = "Layer depth [cm]"],
     )
     eqs = [
-        C ~ vanGenuchten_C(Ψ_m, θₛ, θᵣ, α, n),
         K ~ vanGenuchten_K(Ψ_m, θₛ, θᵣ, α, n, Kₛ, l),
         θ ~ vanGenuchten_θ(Ψ_m, θₛ, θᵣ, α, n),
+        W ~ θ * dz, # implicit multiplication with 1 cm²
 
         D(z) ~ 0,
-        D(Ψ_m) ~ ( ΣF/dz ) / C,
+        D(W) ~ ΣF,
         Ψ ~ Ψ_m + Pₕ # eq. 7 in paper
     ]
 
@@ -190,7 +190,7 @@ function soil_connection(; name, dz)
         Ψ_2(t), [description = "Total water potential of compartment 2 [cm]"],
     )
     eqs = [
-        F ~ K_half * ( (Ψ_2-Ψ_1) / dz -  dz/dz ),
+        F ~ K_half * (Ψ_2-Ψ_1) / dz,
         K_half ~ 2 / (1/K_1 + 1/K_2),
     ]
 

@@ -166,7 +166,6 @@ default_changes = Dict(
     :dz => dz,
     :W_max => 1e5,
     :z => NaN, # assigned in nodes
-    :Ψ_m => MPa2cm(-0.003),
     :Ψ => MPa2cm(-0.003),
     :εₓ => MPa2cm(10.0),
     :rᵣ => 0.05,
